@@ -1,0 +1,1459 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
+
+char *strsep();
+int line_checker(char* line);
+void add_spaces();
+int is_not_char(char s);
+int scalar_control();
+int vector_control();
+int matrix_control();
+int print_control();
+int printsep_control();
+int comment_control();
+int endfor_control();
+int assignment_control();
+int assign_control();
+int for_control();
+int* expression_control();
+int* term_control();
+int id_control();
+int is_id(char* token);
+int is_digit(char* token);
+int is_exist(char* var);
+int is_number(char* token);
+char** sub_array(char** array, int from, int to);
+
+void scalar_printer(char* line);
+void vector_printer(char* line);
+void matrix_printer(char* line);
+void assignment_printer();
+void print_printer();
+
+int find_index(char* var,char** array,int array_size);
+
+char** get_token_array(char* line);
+
+char* scalar_array[128];
+int scalar_array_size = 0;
+char* vector_array[128];
+int vector_array_size = 0;
+char* matrix_array[128];
+int matrix_array_size = 0;
+
+char* output_array [256];
+int output_array_size = 0;
+
+int real_size = 0;
+char real[1000];
+int curr_line = 1;
+
+enum tokens{SCALAR=1,VECTOR=2,MATRIX=3,COMMENT=4,ASSIGNMENT=5,FOR=6,PRINT=7,PRINTSEP=8,ENDFOR=9};
+
+int main (int argc,char *argv[]) {
+
+    real[0] = '\0';
+
+    char str1[1000];
+    str1[0] = '\0';
+
+    strcpy(str1,"#include <stdlib.h>\n#include <stdio.h>\nvoid printsep();\nint main() {\n");
+    strcat(real,str1);
+
+    FILE *fp;
+    FILE *fwrite;
+
+    fwrite = fopen("./file.c","w");
+
+    fprintf(fwrite,"%s","test");
+    
+    char line[256];
+    /* Open file for reading Filename is given on the command line */
+    
+    if (argc != 2) {
+
+        printf("Give filename as command line argument\n") ;
+        return(1);
+
+    }
+    fp = fopen(argv[1], "r");
+    if(fp == NULL) {
+        printf("Cannot open %s\n",argv[1]);
+        return(1);
+    }
+
+    int for_count = 0;
+    int endfor_count = 0;
+    int last_for_index = 0;
+
+    while( fgets(line,256,fp) != NULL ) {
+        line[strcspn(line, "\r\n")] = 0;
+        //printf("%s",line) ;
+        int line_code = 0;
+        line_code = line_checker(line);
+        //printf("value line = %d\n",line_code);
+        if (line_code==SCALAR){
+            printf("scalar line: %s\n",line);
+            if(!scalar_control(line)){
+                printf("Error: Line %d\n",curr_line);
+            }
+            scalar_printer(line);
+        }
+        else if (line_code==VECTOR){
+            printf("vector line: %s\n",line);
+            if(!vector_control(line)){
+                printf("Error: Line %d\n",curr_line);
+            }
+            vector_printer(line);
+        }
+        else if (line_code==MATRIX){
+            printf("matrix line: %s\n",line);
+            if(!matrix_control(line)){
+                printf("Error: Line %d\n",curr_line);
+            }
+            matrix_printer(line);
+        }
+        else if (line_code==COMMENT){
+            printf("comment line\n");
+            if(!comment_control(line)){
+                printf("Error: Line %d\n",curr_line);
+            }
+        }
+        else if (line_code==ASSIGNMENT){
+            printf("assignment line: %s\n",line);
+            if(!assignment_control(line)){
+                printf("Error: Line %d\n",curr_line);
+            }
+            assignment_printer(line);
+        }
+        else if (line_code==FOR){
+            printf("for line\n");
+            if(!for_control(line)){
+                printf("Error: Line %d\n",curr_line);
+            }
+            last_for_index = curr_line;
+            for_count++;
+        }
+        else if (line_code==PRINT){
+            printf("PRINT line\n");
+            if(!print_control(line)){
+                printf("Error: Line %d\n",curr_line);
+            }
+            print_printer(line);
+        }
+        else if (line_code==PRINTSEP){
+            printf("PRINTSEP line\n");
+            if(!printsep_control(line)){
+                printf("Error: Line %d\n",curr_line);
+            }
+            strcat(real,"printsep();\n");
+        }
+        else if (line_code==ENDFOR){
+            printf("ENDfor line\n");
+            if(!endfor_control(line)){
+                printf("Error: Line %d\n",curr_line);
+            }
+            endfor_count++;
+            if (endfor_count > for_count) {printf("Error: Line %d\n",curr_line);}
+        }
+
+        else{printf("blank line\n");}
+        curr_line++;
+    }
+
+    if (endfor_count != for_count) {printf("Error: Line %d\n",last_for_index);}
+
+    strcat(real,"}\n");
+    strcat(real, "void printsep(){\nprintf(\"----------\\n\");\n}\n");
+    printf("%s",real);
+
+    fclose(fp);
+
+    fclose(fwrite);
+
+    return(0);
+
+}
+
+/**
+ * @brief checks what is stated in the line and returns it.
+ * 
+ * @param line 
+ * @return int 
+ */
+int line_checker(char* line){
+
+    char* pline = (char*)malloc(256);
+    //char* pline = line;
+    strcpy(pline, line);
+
+    char *q ;
+    char *token ;
+
+    add_spaces(pline);
+    
+    q = strdup(pline);
+    
+    //printf("Initial q: '%s'\n",q);
+    free(pline);
+    while( (token = strsep(&q," ")) != NULL ){
+        //printf("%s\n",token);
+        
+        if (strcmp(token,"\n")==0){return 0;}
+        else if (strcmp(token,"for")==0){return FOR;}
+        else if (strcmp(token,"scalar")==0){return SCALAR;}
+        else if (strcmp(token,"vector")==0)return VECTOR;
+        else if (strcmp(token,"matrix")==0)return MATRIX;
+        else if (strcmp(token,"#")==0)return COMMENT;
+        else if (strcmp(token,"=")==0){return ASSIGNMENT;}
+        else if (strcmp(token,"print")==0)return PRINT;
+        else if (strcmp(token,"printsep")==0)return PRINTSEP;
+        else if (strcmp(token,"}")==0)return ENDFOR;  
+    }
+    
+    return(0);
+}
+/**
+ * @brief this string slicing function extracts tokens surrounded by the delim value.
+ * 
+ * @param stringp string to be sliced
+ * @param delim the limiter value from which the string is sliced through
+ * @return char* 
+ */
+char *strsep(char **stringp, const char *delim) {
+    char *rv = *stringp;
+    if (rv) {
+        *stringp += strcspn(*stringp, delim);
+        if (**stringp)
+            *(*stringp)++ = '\0';
+        else
+            *stringp = 0; }
+    return rv;
+}
+
+
+/**
+ * @brief adds whitespaces before and after each symbol.
+ * 
+ * @param pline 
+ */
+void add_spaces(char* pline) {
+    char temp[256];
+    char* x = pline;
+    int i = 0;
+    while (*pline != '\0'){
+        temp[i] = *pline;
+        if (is_not_char((char)*(pline+1))== 1){temp[i+1] = ' ';i++;}
+        if (is_not_char((char)*(pline))== 1){temp[i+1] = ' ';i++;}
+        i++;
+    
+        *pline++;
+    }
+    temp[i] = *pline;
+    int j =0;
+    while (temp[j] != '\0'){
+        *x = temp[j];
+        //printf("hata %c",temp[j]);
+        *x++;
+        j++;
+    }
+    *x = temp[j];
+
+}
+
+/**
+ * @brief checks whether the character s is a symbol or not.
+ * 
+ * @param s 
+ * @return int 
+ */
+int is_not_char(char s){
+    char not_chars[] = {'+','-',',','{','}',':',';','(',')','#','=','[',']','*'};
+    int length = sizeof(not_chars)/sizeof(not_chars[0]);
+    for (int i=0;i<length;i++){
+        if (not_chars[i] == s){return 1;}
+    }
+    return 0;
+}
+
+/**
+ * @brief checks whether there are 2 tokens in the line (as it should be for scalar assignment) and whether the token is named correctly.
+ * 
+ * @param line 
+ * @return int 
+ */
+int scalar_control(char* line){
+    char** token_array = get_token_array(line);
+
+    int size = 0;
+
+    while (strcmp(token_array[size],"\0")!=0){
+        size++;
+    }
+
+    if (size != 2){free(token_array);return 0;}
+    if (strcmp(token_array[2],"\0")!=0){free(token_array);return 0;}   
+    if (!is_id(token_array[1])){free(token_array);return 0;}
+    if (is_exist(token_array[1]) != 0){free(token_array);return 0;} 
+
+    scalar_array[scalar_array_size] = token_array[1];
+    scalar_array_size++;
+
+    free(token_array);
+    return 1;
+}
+
+
+/**
+ * @brief checks the 5 tokens required for vector assignment ('vector','id','[','int',']') and the name of the variable.
+ * 
+ * @param line 
+ * @return int 
+ */
+int vector_control(char* line){
+    char** token_array = get_token_array(line);
+
+    int size = 0;
+
+    while (strcmp(token_array[size],"\0")!=0){
+        size++;
+    }
+
+    if (size != 5){free(token_array);return 0;} //token sayısı
+    if (strcmp(token_array[5],"\0")!=0){free(token_array);return 0;}//6. token bos mu
+    if (!is_id(token_array[1])){free(token_array);return 0;}// variable adi dogru mu
+    if ((strcmp(token_array[2],"[")!=0) || (strcmp(token_array[4],"]")!=0)) {free(token_array);return 0;} // 3. ve 5. token koseli parantez mi
+    if (!is_digit(token_array[3])){free(token_array);return 0;}//4. token integer mı
+    if (is_exist(token_array[1]) != 0){free(token_array);return 0;} // daha önce tanımladı mı
+
+    vector_array[vector_array_size] = token_array[1];
+    vector_array_size++;
+    vector_array[vector_array_size] = token_array[3];
+    vector_array_size++;
+
+    return 1;
+}
+
+/**
+ * @brief checks the 7 tokens required for matrix assignment ('matrix','id','[', 'int', ',', 'int', ']') and the name of the variable.
+ * 
+ * @param line 
+ * @return int 
+ */
+int matrix_control(char* line) {
+    char** token_array = get_token_array(line);
+
+    int size = 0;
+
+    while (strcmp(token_array[size],"\0")!=0){
+        size++;
+    }
+
+    if (size != 7){free(token_array);return 0;} //token sayısı
+    if (strcmp(token_array[7],"\0")!=0){free(token_array);return 0;}//8. token bos mu
+    if (!is_id(token_array[1])){free(token_array);return 0;}// variable adi dogru mu
+    if ((strcmp(token_array[2],"[")!=0) || (strcmp(token_array[4],",")!=0) || (strcmp(token_array[6],"]")!=0)) {free(token_array);return 0;} // 3. ve 7. token koseli parantez mi, 5. token virgül mü
+    if (!is_digit(token_array[3]) || !is_digit(token_array[5])){free(token_array);return 0;}//4. ve 6. token integer mı
+    if (is_exist(token_array[1]) != 0){free(token_array);return 0;} // daha önce tanımladı mı
+
+    matrix_array[matrix_array_size] = token_array[1];
+    matrix_array_size++;
+    matrix_array[matrix_array_size] = token_array[3];
+    matrix_array_size++;
+    matrix_array[matrix_array_size] = token_array[5];
+    matrix_array_size++;
+
+    return 1;
+}
+
+/**
+ * @brief checks the print statement tokens, the left and right paranthesis
+ * 
+ * @param line 
+ * @return int 
+ */
+int print_control(char* line) {
+    char** token_array = get_token_array(line);
+
+    int size = 0;
+    while (strcmp(token_array[size],"\0")!=0){
+        size++;
+    }
+    if (size <= 3){free(token_array);return 0;}
+
+    if (strcmp(token_array[1],"(")!=0){free(token_array);return 0;}
+    if (strcmp(token_array[size - 1],")")!=0){free(token_array);return 0;}
+    if (size- 2 == 1) {free(token_array);return 0;}
+
+    char** id_token_array = sub_array(token_array,2,size - 1);
+    if (!id_control(id_token_array,size - 3)) {return 0;}
+
+    return 1;
+}
+
+/**
+ * @brief checks the printsep tokens
+ * 
+ * @param line 
+ * @return int 
+ */
+int printsep_control(char* line) {
+    char** token_array = get_token_array(line);
+
+    int size = 0;
+    while (strcmp(token_array[size],"\0")!=0){
+        size++;
+    }
+    
+    if (size != 3){free(token_array);return 0;}
+    if (strcmp(token_array[1],"(")!=0){free(token_array);return 0;}
+    if (strcmp(token_array[2],")")!=0){free(token_array);return 0;}
+
+    return 1;
+
+}
+
+/**
+ * @brief checks the final line of a for block, which is the "}" symbol
+ * 
+ * @param line 
+ * @return int 
+ */
+int endfor_control(char* line) {
+    char** token_array = get_token_array(line);
+
+    int size = 0;
+    while (strcmp(token_array[size],"\0")!=0){
+        size++;
+    }
+
+    if (size != 1) {return 0;}
+    if (strcmp(token_array[0],"}")!=0){free(token_array);return 0;}
+
+    return 1;
+}
+
+/**
+ * @brief checks the comment line symbol "#"
+ * 
+ * @param line 
+ * @return int 
+ */
+int comment_control(char* line) {
+    char** token_array = get_token_array(line);
+
+    if (strcmp(token_array[0],"#")!=0){free(token_array);return 0;}
+
+    free(token_array);
+
+    return 1;
+}
+
+/**
+ * @brief checks the for block. If there is a comma at index 3, it treats it as a nested for. It then id-checks the first element and expression-checks the remaining 3 elements, which are separated by semicolons, for each loop.
+ * 
+ * @param line 
+ * @return int 
+ */
+int for_control(char* line){
+    char** token_array = get_token_array(line);
+    int size = 0;
+
+    while (strcmp(token_array[size],"\0")!=0){
+        size++;
+    }
+
+    if (size < 11) {free(token_array);return 0;}
+    if (strcmp(token_array[0],"for")!=0){free(token_array);return 0;}
+    if ((strcmp(token_array[1],"(")!=0)  || (strcmp(token_array[size-2],")")!=0)  || (strcmp(token_array[size-1],"{")!=0)){free(token_array);return 0;}
+    if (strcmp(token_array[3],",")==0) {
+        if (strcmp(token_array[5],"in")!=0){free(token_array);return 0;}
+        int clas1 = is_exist(token_array[2]);
+        if (clas1 != 1){free(token_array);return 0;}
+        int clas2 = is_exist(token_array[4]);
+        if (clas2 != 1){free(token_array);return 0;}
+
+        char** remaining_token_array = sub_array(token_array,6,size-2);
+        printf("id  = %s ",remaining_token_array[0]);
+
+        int size1 = size-8 ;
+        printf("id  = %d ",size1);
+        if (size1 < 11) {free(token_array);return 0;}
+        int open_parantez_num = 0;
+        int close_parantez_num = 0;
+        int open_square_num = 0;
+        int close_square_num = 0;
+
+        int comma_num = 0;
+
+        int ind_from = 0;
+        for (int i = 0; i < size1; i++){
+            if(strcmp(remaining_token_array[i],"(")==0){open_parantez_num++;}
+            if(strcmp(remaining_token_array[i],")")==0){close_parantez_num++;}
+            if (close_parantez_num > open_parantez_num){return 0;}
+            if(strcmp(remaining_token_array[i],"[")==0){open_square_num++;}
+            if(strcmp(remaining_token_array[i],"]")==0){close_square_num++;}
+            if (close_square_num > open_square_num){return 0;}
+
+            if ((strcmp(remaining_token_array[i],":")==0) && (close_parantez_num == open_parantez_num)) {
+                if (ind_from == i) {return 0;}
+                char** expression_token_array = sub_array(remaining_token_array,ind_from,i);
+                printf("idme  = %s ",expression_token_array[0]);
+                int* expression = expression_control(expression_token_array,i - ind_from);
+                if(expression[0] == 0) {free(token_array);return 0;}
+                if(expression[3] != 1) {free(token_array);return 0;}
+
+                ind_from = i + 1;
+            }
+            if ((strcmp(remaining_token_array[i],",")==0) && (close_parantez_num == open_parantez_num) && (close_square_num == open_square_num)) {
+                if (comma_num == 1) {return 0;}
+                if (ind_from == i) {return 0;}
+                comma_num++;
+                char** expression_token_array = sub_array(remaining_token_array,ind_from,i);
+                printf("idme  = %s ",expression_token_array[0]);
+                int* expression = expression_control(expression_token_array,i - ind_from);
+                if(expression[0] == 0) {free(token_array);return 0;}
+                if(expression[3] != 1) {free(token_array);return 0;}
+
+                ind_from = i + 1;
+            }
+        }
+        if (ind_from >= size1) {return 0;}
+        char** expression_token_array = sub_array(remaining_token_array,ind_from,size1);
+        printf("idme  = %s ",expression_token_array[0]);
+        int* expression = expression_control(expression_token_array,size1 - ind_from);
+        if(expression[0] == 0) {free(token_array);return 0;}
+        if(expression[3] != 1) {free(token_array);return 0;}
+
+    } else {
+        if ((strcmp(token_array[1],"(")!=0) || (strcmp(token_array[3],"in")!=0) || (strcmp(token_array[size-2],")")!=0)  || (strcmp(token_array[size-1],"{")!=0)){free(token_array);return 0;}
+        int clas = is_exist(token_array[2]);
+        if (clas != 1){free(token_array);return 0;}
+
+        char* column = ":";
+        int ind_column = find_index(column,token_array,size);
+        if (ind_column == -1) {free(token_array);return 0;}
+        if (ind_column - 4 < 1) {free(token_array);return 0;}
+        char** expression1_token_array = sub_array(token_array,4,ind_column);
+        printf("id  = %s ",expression1_token_array[0]);
+        int* expression1 = expression_control(expression1_token_array,ind_column-4);
+        if(expression1[0] == 0) {free(token_array);return 0;}
+        if(expression1[3] != 1) {free(token_array);return 0;}
+
+
+        char** remaining_token_array = sub_array(token_array,ind_column+1,size-2);
+        printf("id  = %s ",remaining_token_array[1]);
+        int ind_column2 = find_index(column,remaining_token_array,size - ind_column- 3);
+        if (ind_column2 == -1) {free(token_array);return 0;}
+        if (ind_column2 == 0) {free(token_array);return 0;}
+        char** expression2_token_array = sub_array(remaining_token_array,0,ind_column2);
+        printf("id  = %s ",expression2_token_array[0]);
+        int* expression2 = expression_control(expression2_token_array,ind_column2);
+        if(expression2[0] == 0) {free(token_array);return 0;}
+        if(expression2[3] != 1) {free(token_array);return 0;}
+
+        int size2 = size - ind_column- ind_column2 - 4;
+        if (size2 < 1)  {free(token_array);return 0;}
+        char** expression3_token_array = sub_array(remaining_token_array,ind_column2 + 1,size - ind_column- 3);
+        printf("id  = %s ",expression3_token_array[0]);
+        int* expression3 = expression_control(expression3_token_array,size - ind_column- ind_column2 - 4);
+        if(expression3[0] == 0) {free(token_array);return 0;}
+        if(expression3[3] != 1) {free(token_array);return 0;}
+
+        printf("ind %d " , ind_column);
+    }
+
+    return 1;
+
+}
+
+/**
+ * @brief checks if an assignment statement is correct, as in (variable = expression)
+ * 
+ * @param line 
+ * @return int 
+ */
+int assignment_control(char* line){
+    char** token_array = get_token_array(line);
+
+    int size = 0;
+    while (strcmp(token_array[size],"\0")!=0){
+        size++;
+    }
+
+    if (size < 3){free(token_array);return 0;}
+    if (strcmp(token_array[1],"=")!=0){free(token_array);return 0;}
+    int clas = is_exist(token_array[0]);
+    if (clas == 0){free(token_array);return 0;}
+    if (strcmp(token_array[2],"{")==0){
+        if(!assign_control(token_array, size)){free(token_array);return 0;}
+    } else {
+        char** expression_token_array = sub_array(token_array,2,size);
+        printf("ilk = %d ", size - 2);
+        int* expression = expression_control(expression_token_array,size-2);
+        if(!expression[0]){return 0;}
+
+        if (clas == 2) {
+            if ((expression[3] != 2 ) && (expression[3] != 3 )) {return 0;}
+        }
+        else if (clas != expression[3]){return 0;}
+    }
+
+    //assignment_printer(token_array);
+
+    return 1;
+}
+
+/**
+ * @brief checks if the variable to be assigned a value to is assignable, by checking if it has been declared before as another type. 
+ * 
+ * @param token_array 
+ * @param size 
+ * @return int 
+ */
+int assign_control(char** token_array, int size){
+    char* var = token_array[0];
+    int data = is_exist(var);
+    int curr = 3;
+
+    if (data == 2) {
+        int index = find_index(var,vector_array,vector_array_size);
+        int a = atoi(vector_array[index+1]);
+        if (a+3 != size - 1)return 0;
+        for (int i = 3; i < size - 1; i++) {
+            if(!is_number(token_array[i])) return 0;
+        }
+
+    } else if (data == 3) {
+        int index = find_index(var,matrix_array,matrix_array_size);
+        int a = atoi(matrix_array[index+1]);
+        int b = atoi(matrix_array[index+2]);
+        if (a*b+3 != size - 1)return 0;
+        for (int i = 3; i < size - 1; i++) {
+            if(!is_number(token_array[i])) return 0;
+        }
+    }
+
+    return 1;
+}
+
+/**
+ * @brief checks if the value to be assigned is assignable, by doing syntax checks according to the type it should be. 
+ * 
+ * @param token_array 
+ * @param size 
+ * @return int 
+ */
+int id_control(char** token_array,int size) {
+    int clas = is_exist(token_array[0]);
+    if (clas == 0) return 0;
+    if (size == 1) return 1;
+    if (size == 4) {
+        if (clas == 1) { return 0;}
+        if (strcmp(token_array[1],"[")!=0) {return 0;}
+        if (strcmp(token_array[3],"]")!=0) {return 0;}
+        if (!is_digit(token_array[2])) {return 0;}
+        return 1;
+        
+    } else if (size == 6) {
+        if (clas == 1) { return 0;}
+        if (clas == 2) { return 0;}
+        if (strcmp(token_array[1],"[")!=0) {return 0;}
+        if (strcmp(token_array[3],",")!=0) {return 0;}
+        if (strcmp(token_array[5],"]")!=0) {return 0;}
+        if (!is_digit(token_array[2])) {return 0;}
+        if (!is_digit(token_array[4])) {return 0;}
+        return 1;
+
+    } else return 0;
+}
+
+/**
+ * @brief checks if an expression is error-free. Checks equality of number of left and right paranthesis. Detects summation of substraction by the sign in between terms/expressions, then recursively runs term_control/expression_control over them.
+ * 
+ * @param token_array 
+ * @param size 
+ * @return int* 
+ */
+int* expression_control(char** token_array,int size) {
+    //
+    int open_parantez_num = 0;
+    int close_parantez_num = 0;
+
+    int row = 1;
+    int column = 1;
+
+    int* valid = (int*)malloc(512);
+    int* error = (int*)malloc(512);
+    error[0] = 0;
+    error[1] = 0;
+    error[2] = 0;
+    valid[0] = 1;
+
+    int is_term = 1;
+
+    for (int i = 0; i < size; i++){
+        if(strcmp(token_array[i],"(")==0){open_parantez_num++;}
+        if(strcmp(token_array[i],")")==0){close_parantez_num++;}
+        if (close_parantez_num > open_parantez_num){return error;}
+        if ((strcmp(token_array[i],"+")==0) && close_parantez_num == open_parantez_num)  {
+            // toplama
+            //printf("i  = %d",i);
+            if (i == 0) return error;
+            char** term_token_array = sub_array(token_array,0,i);
+            printf("id  = %s ",term_token_array[0]);
+            printf("size  = %d ",i);
+            int* term1 = term_control(term_token_array, i);
+            if (!term1[0]) {
+                return error;
+            }
+            if (i + 1 == size) return error;
+            char** expression_token_array = sub_array(token_array,i + 1,size );
+            printf("id2  = %s ",expression_token_array[0]);
+            int* term2 = expression_control(expression_token_array,size - i -1);
+            if (!term2[0]) {
+                return error;
+            }
+            if (term1[1] != term2[1] || term1[2] != term2[2]) return error;
+            if (term1[3] != term2[3]) return error;
+            row = term1[1];
+            column = term1[2];
+            valid[3] = term1[3];
+
+            is_term = 0;
+            break;
+        }
+        if((strcmp(token_array[i],"-")==0) && close_parantez_num == open_parantez_num) {
+            //cikarma
+            if (i == 0) return error;
+            char** term_token_array = sub_array(token_array,0,i);
+            printf("id  = %s ",term_token_array[0]);
+            printf("size  = %d ",i);
+            int* term1 = term_control(term_token_array, i);
+            if (!term1[0]) {
+                return error;
+            }
+            if (i + 1 == size) return error;
+            char** expression_token_array = sub_array(token_array,i + 1,size );
+            printf("id2  = %s ",expression_token_array[0]);
+            int* term2 = expression_control(expression_token_array,size - i -1);
+            if (!term2[0]) {
+                return error;
+            }
+            if (term1[1] != term2[1] || term1[2] != term2[2]) return error;
+            if (term1[3] != term2[3]) return error;
+            row = term1[1];
+            column = term1[2];
+            valid[3] = term1[3];
+
+            is_term = 0;
+            break;
+        }
+    }
+
+    if (is_term) {
+        int* term1 = term_control(token_array, size);
+        if (!term1[0]) {
+            return error;
+        }
+
+        row = term1[1];
+        column = term1[2];
+        valid[3] = term1[3];
+    }
+
+    valid[1] = row;
+    valid[2] = column;
+
+    return valid;
+}
+
+/**
+ * @brief checks if 
+ * 
+ * @param token_array 
+ * @param size 
+ * @return int* 
+ */
+int* term_control(char** token_array,int size) {
+
+    int open_parantez_num = 0;
+    int close_parantez_num = 0;
+
+    int is_factor = 0;
+
+    int row = 1;
+    int column = 1;
+    int index = 0;
+    int* valid = (int*)malloc(512);
+    int* error = (int*)malloc(512);
+    error[0] = 0;
+    error[1] = 0;
+    error[2] = 0;
+    valid[0] = 1;
+
+    printf("test %s  ",token_array[0]);
+
+    if (size == 1) {
+        //printf("ssid*1  = %s ",token_array[0]);
+        if (isdigit(token_array[0][0])) {
+            if (!is_number(token_array[0])) {return error;}
+            valid[1] = row;
+            valid[2] = column;
+            valid[3] = 1;
+
+        } else {
+            int clas = is_exist(token_array[0]);
+            if (is_exist(token_array[0]) == 0 ) {return  error;}
+            if (clas == 1) {}
+            else if (clas == 2) {index = find_index(token_array[0],vector_array,vector_array_size); row = atoi(vector_array[index +1]);}
+            else if (clas == 3) {index = find_index(token_array[0],matrix_array,matrix_array_size); row = atoi(matrix_array[index +1]); column = atoi(matrix_array[index +2]);}
+
+            valid[1] = row;
+            valid[2] = column;
+            valid[3] = clas;
+        }
+        //printf("dasdfasdf === %d, %d  ", row,column);
+        return valid;
+    }
+
+    for (int i = 0; i < size; i++){
+        if(strcmp(token_array[i],"(")==0){open_parantez_num++;}
+        if(strcmp(token_array[i],")")==0){close_parantez_num++;}
+        if (close_parantez_num > open_parantez_num){return error;}
+        if ((strcmp(token_array[i],"*")==0) && close_parantez_num == open_parantez_num)  {
+            if (i == 0) return error;
+            char** term_token_array = sub_array(token_array,0,i);
+            printf("id*1  = %s ",term_token_array[0]);
+            printf("size  = %d ",i);
+            int* term1 = term_control(term_token_array, i);
+            if (!term1[0]) {
+                return error;
+            }
+            if (i + 1 == size) return 0;
+            char** term_token_array2 = sub_array(token_array,i + 1,size );
+            printf("id*2  = %s ",term_token_array2[0]);
+            printf("size  = %d ",size - i -1);
+            int* term2 = term_control(term_token_array2,size - i -1);
+            if (!term2[0]) {
+                return error;
+            }
+            if ((term1[3] != 1) && (term2[3] != 1)) {if(term1[2] != term2[1]) return error;}
+
+            is_factor = 1;
+
+            valid[1] = term1[1];
+            valid[2] = term2[2];
+            if ((term1[3] == 1) && (term2[3] == 1)) {valid[3] = 1;}
+            else if ((term1[3] == 3) || (term2[3] == 3)) {valid[3] = 3;}
+            else {valid[3] = 2;}
+        }
+    }
+    //printf("\n yada %d",size);
+
+    if (is_factor){
+        return valid;
+    }
+
+    if (strcmp(token_array[0],"(")==0) {
+        if (strcmp(token_array[size - 1],")")!=0) {return error;}
+        if (size == 2) {return error;}
+        char** expression_token_array = sub_array(token_array,1,size - 1);
+        printf("id3  = %s ",expression_token_array[0]);
+        int* expression = expression_control(expression_token_array,size-2);
+        if (!expression[0]) {
+            return error;
+        }
+        row = expression[1];
+        column = expression[2];
+        valid[1] = row;
+        valid[2] = column;
+        valid[3] = expression[3];
+        return valid;
+
+    } else if (strcmp(token_array[0],"sqrt")==0) {
+        if ((strcmp(token_array[size - 1],")")!=0) || (strcmp(token_array[1],"(")!=0)){return error;}
+        if (size == 3) {return error;}
+        char** expression_token_array = sub_array(token_array,2,size - 1);
+        printf("id4  = %s ",expression_token_array[0]);
+        int* expression = expression_control(expression_token_array,size-3);
+        if (!expression[0]) {
+            return error;
+        }
+        if ((expression[1] != 1) || (expression[2] != 1)){ return error;}
+        if (expression[3] != 1){ return error;}
+        valid[1] = row;
+        valid[2] = column;
+        valid[3] = 1;
+        return valid;
+
+    } else if (strcmp(token_array[0],"tr")==0) {
+        if ((strcmp(token_array[size - 1],")")!=0) || (strcmp(token_array[1],"(")!=0)){return error;}
+        if (size == 3) {return error;}
+        char** expression_token_array = sub_array(token_array,2,size - 1);
+        printf("id5  = %s ",expression_token_array[0]);
+        int* expression = expression_control(expression_token_array,size-3);
+        if (!expression[0]) {
+            return error;
+        }
+        row = expression[2];
+        column = expression[1];
+        valid[1] = row;
+        valid[2] = column;
+        if (expression[3] == 2) {
+            valid[3] = 3;
+        } else{
+            valid[3] = expression[3];
+        }   
+        return valid;
+
+    } else if (strcmp(token_array[0],"choose")==0){
+        if ((strcmp(token_array[size - 1],")")!=0) || (strcmp(token_array[1],"(")!=0)){return 0;}
+        if (size < 10) {return error;}
+
+        open_parantez_num = 0;
+        close_parantez_num = 0;
+        int open_square_num = 0;
+        int close_square_num = 0;
+        int from = 2;
+        int comma = 0;
+
+        for (int i = 2; i < size - 1; i++){
+            if(strcmp(token_array[i],"(")==0){open_parantez_num++;}
+            if(strcmp(token_array[i],")")==0){close_parantez_num++;}
+            if(strcmp(token_array[i],"[")==0){open_square_num++;}
+            if(strcmp(token_array[i],"]")==0){close_square_num++;}
+            if (close_parantez_num > open_parantez_num){return error;}
+            if (close_square_num > open_square_num){return error;}
+            if ((strcmp(token_array[i],",")==0) && close_parantez_num == open_parantez_num && close_square_num == open_square_num)  {
+                if (i == from) return error;
+                if (comma == 3) return error;
+                char** expression_token_array = sub_array(token_array,from,i);
+                printf("id*1fdsgdsf  = %s ",expression_token_array[0]);
+                printf("size  = %d ",i - from);
+                int* expression = expression_control(expression_token_array, i - from);
+                if (!expression[0]) {
+                    return error;
+                }
+                if ((expression[1] != 1) || (expression[2] != 1)){ return error;}
+                if (expression[3] != 1) { return error;}
+                from = i+1;
+                comma++;
+            }
+        }
+
+        if (comma != 3) {return error;}
+        else {
+            if(from == size - 1){return error;}
+            char** expression_token_array = sub_array(token_array,from,size - 1);
+            printf("id*1fdsgdsf  = %s ",expression_token_array[0]);
+            printf("size  = %d ",size - from - 1);
+            int* expression = expression_control(expression_token_array, size - from - 1);
+            if (!expression[0]) {
+                return error;
+            }
+            if ((expression[1] != 1) || (expression[2] != 1)){ return error;}
+            if (expression[3] != 1) { return error;}
+        }
+
+        valid[1] = row;
+        valid[2] = column;
+        valid[3] = 1;
+        return valid;
+
+    } else if (strcmp(token_array[1],"[")==0) {
+        if (strcmp(token_array[size - 1],"]")!=0) {return error;}
+        if (size - 2 == 1) {return error;}
+
+        printf("id*elseindex  = gs %s ",token_array[0]);
+
+        int clas = is_exist(token_array[0]);
+        if (clas == 0) {return error;}
+        if (clas == 1) {return error;}
+        if (clas == 2) {
+            char** expression_token_array = sub_array(token_array,2,size - 1);
+            printf("id*else  = %s ",expression_token_array[0]);
+            int* expression = expression_control(expression_token_array, size - 3);
+            if (!expression[0]) {
+                return error;
+            }
+            if ((expression[1] != 1) || (expression[2] != 1)){ return error;}
+            valid[1] = row;
+            valid[2] = column;
+            valid[3] = 1;
+            return valid;
+        } else if (clas == 3) {
+            char* index_of = ",";
+            int index = find_index(index_of,token_array,size);
+            printf("id*elseindex  = %d ",index);
+            if (index == -1) { 
+                char** expression_token_array = sub_array(token_array,2,size - 1);
+                printf("id*else  = %s ",expression_token_array[0]);
+                int* expression = expression_control(expression_token_array, size - 3);
+                if (!expression[0]) {
+                    return error;
+                }
+                if ((expression[1] != 1) || (expression[2] != 1)){ return error;}
+                valid[1] = row;
+                valid[2] = column;
+                valid[3] = 2;
+                return valid;
+            } else {
+                if (index== 2) { return error;}
+                char** expression_token_array1 = sub_array(token_array,2,index);
+                printf("id*else3  = %s ",expression_token_array1[0]);
+                int* expression1 = expression_control(expression_token_array1, index - 2);
+                if (!expression1[0]) {
+                    return error;
+                }
+                if ((expression1[1] != 1) || (expression1[2] != 1)){ return error;} 
+                char** expression_token_array2 = sub_array(token_array,index+1,size - 1);
+                printf("id*else3  = %s ",expression_token_array2[0]);
+                int* expression2 = expression_control(expression_token_array2, size - index-2);
+                if (!expression2[0]) {
+                    return error;
+                }
+                if ((expression2[1] != 1) || (expression2[2] != 1)){ return error;}
+            }
+        }
+
+        valid[1] = row;
+        valid[2] = column;
+        valid[3] = 1;
+        return valid;
+    }
+
+    valid[1] = row;
+    valid[2] = column;
+    
+    //printf("test %s  ",token_array[1]);
+
+    return error;
+}
+
+/**
+ * @brief turns some amount of tokens into an array consisting of tokens. Calls strsep on the string to separate the tokens from one another.
+ * 
+ * @param line 
+ * @return char** 
+ */
+char** get_token_array(char* line){
+    //tokenleri array haline getirip donduruyor
+    char* pline = (char*)malloc(512);
+    strcpy(pline, line);
+
+    char *q ;
+    char *token ;
+
+    add_spaces(pline);
+    
+    q = strdup(pline);
+
+    int i = 0;  
+    char** token_array = (char**) malloc(512);
+
+    while( (token = strsep(&q," ")) != NULL ){
+        if (strcmp(token,"")==0) {
+            continue;
+        } else if (strcmp(token,"\n")==0) {
+            continue;
+        } else if (strcmp(token," ")==0) {
+            continue; 
+        } else {
+            //printf("token %s\n",token);
+            token_array[i] = token;
+        }
+        i++;
+    }
+    token_array[i] = "\0";
+    free(pline);
+
+    return token_array;
+}
+/**
+ * @brief checks whether the tokens are alphanumeric and don't start with a number.
+ * 
+ * @param token 
+ * @return int 
+ */
+int is_id(char* token){
+    //tokenin sayıyla başlamayıp alfanumerik karakterler içermesini kontrol ediyor
+    int is_id = 1;
+    char* str = token;
+
+    if (!isalpha(*str) && *str != '_') {
+        //printf("variable intle baslamaz %c",*str);
+        return 0;
+    }
+    str++;
+    for(str; *str != '\0' ; str++) {
+        //printf("%c\n",*str);
+        is_id = is_id && (isalpha(*str)||isdigit(*str)|| *str=='_');
+    }
+    //printf("is id: %d\n",is_id);
+    return is_id;
+}
+/**
+ * @brief checks whether a character is a digit or not.
+ * 
+ * @param token 
+ * @return int 
+ */
+int is_digit(char* token){
+    int is_digit = 1;
+    char* str = token;
+
+    for(str; *str != '\0' ; str++) {
+        printf("%c\n",*str);
+        is_digit = is_digit && isdigit(*str);
+    }
+
+    return is_digit;
+}
+/**
+ * @brief checks whether an amount of chars is a number or not, by checking is_digit on each of the chars.
+ * 
+ * @param token 
+ * @return int 
+ */
+int is_number(char* token) {
+    int is_number = 1;
+    char* str = token;
+    int dot_number = 0;
+
+    if (!isdigit(*str)){return 0;}
+
+    for(str; *str != '\0' ; str++) {
+        //printf("%c\n",*str);
+        if (*str == '.'){
+            dot_number++;
+            if (dot_number > 1) return 0;
+        }
+        
+        is_number = is_number && (isdigit(*str) || *str == '.');
+    }
+
+    if (!isdigit(*--str)){return 0;}
+
+    return 1;
+}
+/**
+ * @brief checks if the variable has been declared before. If it has been declared, checks its type: 1 for scalar, 2 for vector, 3 for matrix.
+ * 
+ * @param var 
+ * @return int 
+ */
+int is_exist(char* var){
+    // variable daha önce tanımlandı mı tanımlandıysa turu ne scalar-1 vector-2 matrix-3
+
+    for (int i = 0; i < scalar_array_size; i++) {
+        if (strcmp(scalar_array[i],var)==0) {
+            return 1;
+        }
+    }
+    for (int j = 0; j < vector_array_size; j++) {
+        if (strcmp(vector_array[j],var)==0) {
+            return 2;
+        }
+    }
+    for (int k = 0; k < matrix_array_size; k++) {
+        if (strcmp(matrix_array[k],var)==0) {
+            return 3;
+        }
+    }
+    return 0;
+}
+/**
+ * @brief finds the index of the value in the given array. Returns -1 if the variable isn't in the array.
+ * 
+ * @param var variable to be searched for.
+ * @param array where the variable will be searched in.
+ * @param array_size 
+ * @return int 
+ */
+int find_index(char* var,char** array,int array_size){
+    int index = -1;
+     
+    for (int i = 0; i < array_size; i++) {
+        if (strcmp(array[i],var)==0) {
+            index = i;
+            break;
+        }
+    }
+    return index;
+}
+/**
+ * @brief creates a subarray of the array limited by the 2 indices, from and to.
+ * 
+ * @param array 
+ * @param from 
+ * @param to 
+ * @return char** 
+ */
+char** sub_array(char** array, int from, int to) {
+    char** sub_array = (char**)malloc(512);
+
+    int i = 0;
+
+    for (from;from < to; from++){
+        sub_array[i] = array[from];
+        //printf("adasdsa %s ",array[from]);
+        i++;
+    }
+
+    //printf("adasdsa %s ",sub_array[0]);
+    //free(sub_array);
+
+    return sub_array;
+}
+/**
+ * @brief prints a scalar assignment on the c file.
+ * 
+ * @param line 
+ */
+void scalar_printer(char* line){
+    char** token_array = get_token_array(line);
+
+    int size = 0;
+
+    while (strcmp(token_array[size],"\0")!=0){
+        size++;
+    }
+
+    char str1[1000];
+    str1[0] = '\0';
+
+    sprintf(str1,"float %s;\n",token_array[1]);
+
+    printf("\n%s\n",str1);
+    strcat(real,str1);
+
+    /*
+    char scalar_output[1000];
+    scalar_output[0] = '\0' ;
+    strcpy(scalar_output,"float ");
+    char id[128];
+    id[0] = '\0';
+    
+    strcpy(id,token_array[1]);
+    strcat(scalar_output,id);
+    strcat(scalar_output,";");
+    printf("deneme %s ",scalar_output);
+    output_array[output_array_size] = "";
+    char scalar_out[1000];
+    scalar_out[0] = '\0' ;
+    strcpy(scalar_out,scalar_output);
+    output_array[output_array_size] = scalar_out;
+    //output_array[output_array_size] = scalar_output;
+    output_array_size++;
+    */
+}
+
+/**
+ * @brief prints a vector assignment on the c file.
+ * 
+ * @param line 
+ */
+void vector_printer(char* line){
+    char** token_array = get_token_array(line);
+
+    int size = 0;
+
+    while (strcmp(token_array[size],"\0")!=0){
+        size++;
+    }
+
+    int index = find_index(token_array[1],vector_array,vector_array_size);
+    int row = atoi(vector_array[index +1]);
+
+    char rowc[10];
+    itoa(row,rowc,10);
+
+    char str1[1000];
+    str1[0] = '\0';
+    printf("dafdfa");
+    sprintf(str1,"float** %s = (float** ) malloc(%s* sizeof(float*));\n",token_array[1],rowc);
+    printf("\n%s\n",str1);
+
+    strcat(real,str1);
+    /*
+    strcpy(vector_output,"float ");
+    char* dimension = token_array[3];
+    char id[1000];
+    id[0] = '\0';
+    strcpy(id,token_array[1]);
+    strcat(vector_output,id);
+    strcat(vector_output,"[");
+    strcat(vector_output,token_array[3]);
+    strcat(vector_output,"]");
+    strcat(vector_output,";");
+    printf("deneme %s ",vector_output);
+    char vector_out[1000];
+    vector_out[0] = '\0' ;
+    strcpy(vector_out,vector_output);
+    output_array[output_array_size] = vector_out;
+    output_array_size++;
+    */
+}
+
+/**
+ * @brief prints a matrix assignment on the c file.
+ * 
+ * @param line 
+ */
+void matrix_printer(char* line){
+    char** token_array = get_token_array(line);
+
+    int size = 0;
+
+    while (strcmp(token_array[size],"\0")!=0){
+        size++;
+    }
+    int index = find_index(token_array[1],matrix_array,matrix_array_size);
+    int row = atoi(matrix_array[index +1]);
+
+    char rowc[10];
+    itoa(row,rowc,10);
+
+    char str1[1000];
+    str1[0] = '\0';
+    printf("dafdfa");
+    sprintf(str1,"float** %s = (float** ) malloc(%s* sizeof(float*));\n",token_array[1],rowc);
+    printf("\n%s\n",str1);
+
+    strcat(real,str1);
+
+    /*
+    char matrix_output[] = "float ";
+    char* id= token_array[1];
+    char* dimension = token_array[3];
+    printf("deneme %s ",dimension);
+    
+    strcat(matrix_output,id);
+    strcat(matrix_output,"[");
+    strcat(matrix_output,token_array[3]);
+    strcat(matrix_output,"]");
+    strcat(matrix_output,"[");
+    strcat(matrix_output,token_array[5]);
+    strcat(matrix_output,"]");
+    strcat(matrix_output,";");
+    printf("deneme %s ",matrix_output);
+    output_array[output_array_size] = matrix_output;
+    printf("deneme %s ",matrix_output);
+    output_array_size++;
+    */
+}
+
+/**
+ * @brief 
+ * 
+ * @param line 
+ */
+void assignment_printer(char* line){
+    char** token_array = get_token_array(line);
+
+    int size = 0;
+
+    while (strcmp(token_array[size],"\0")!=0){
+        printf("str : %s ",token_array[size]);
+        size++;
+    }
+
+    printf("dasfadsfdasf %d ",size);
+
+    if (strcmp(token_array[2],"{")==0) {
+
+        int clas = is_exist(token_array[0]);
+        printf("\n clas %d",clas);
+
+        int dimen = 0;
+        int row = 1;
+        int column = 1;
+        char rowc[10];
+        char columnc[10];
+
+        if (clas == 2) {
+            int index = find_index(token_array[0],vector_array,vector_array_size);
+            row = atoi(vector_array[index +1]);
+            dimen = row;
+        } else if (clas == 3) {
+            int index = find_index(token_array[0],matrix_array,matrix_array_size);
+            row = atoi(matrix_array[index +1]);
+            column = atoi(matrix_array[index +2]);
+            dimen = row * column;
+        }
+        char dimens[20];
+        itoa(dimen,dimens,10);
+        itoa(row,rowc,10);
+        itoa(column,columnc,10);
+        printf("\nfuckoff %s\n",dimens);
+        char str1[1000];
+        str1[0] = '\0';
+        sprintf(str1,"float _%s[%s] = {",token_array[0],dimens);
+        strcat(str1,token_array[3]);
+        for (int i = 0; i < dimen - 1;i++){
+            strcat(str1,",");
+            strcat(str1,token_array[4 + i]);
+        }
+        strcat(str1,"};");
+        printf("\nfuckoff %s\n",str1);
+
+        char str2[1000];
+        str2[0] = '\0';
+        sprintf(str2,"for (int i = 0; i< %s;i++){\n\t%s[i] = (float *) calloc(%s,sizeof(float));\n\tfor (int j = 0; j< %s; j++){\n\t\t%s[i][j]= _%s[i*%s+j];}}\n",rowc,token_array[0],columnc,columnc,token_array[0],token_array[0],columnc);
+        printf("\nfuckoff %s\n",str2);
+
+        char str3[1000];
+        str3[0] = '\0';
+        sprintf(str3,"%s\n%s\n",str1,str2);
+        printf("\n%s\n",str3);
+
+        strcat(real,str3);
+
+    } else {
+
+    }
+}
+
+/**
+ * @brief 
+ * 
+ * @param line 
+ */
+void print_printer(char* line){
+    char** token_array = get_token_array(line);
+
+    int size = 0;
+
+    while (strcmp(token_array[size],"\0")!=0){
+        printf("str : %s ",token_array[size]);
+        size++;
+    }
+
+    int clas = is_exist(token_array[2]);
+    if (clas  == 1){
+        char str1[1000];
+        str1[0] = '\0';
+        sprintf(str1,"printf(\"%%f\\n\",%s);\n",token_array[2]);
+
+        printf("\n%s\n",str1);
+
+        strcat(real,str1);
+    } else if (clas == 2){
+        if (strcmp(token_array[3],"[")==0){
+            char str1[1000];
+            str1[0] = '\0';
+            sprintf(str1,"printf(\"%%f\\n\",%s[%s][1]);\n",token_array[2],token_array[4]);
+            strcat(real,str1);
+        } else {
+            char str1[1000];
+            str1[0] = '\0';
+            int index = find_index(token_array[2],vector_array,vector_array_size);
+            int row = atoi(vector_array[index +1]);
+            sprintf(str1,"for(i=0; i < %s; i++){\nprintf(\"%%f\\n\",%s[i][1]);}\n",vector_array[index +1],token_array[2]);
+            strcat(real,str1);
+        }
+    }
+}
